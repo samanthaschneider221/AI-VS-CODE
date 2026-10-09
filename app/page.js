@@ -10,9 +10,11 @@ const suggestions = [
 
 export default function Home() {
   const [name, setName] = useState('');
+  const [queueName, setQueueName] = useState('');
   const [session, setSession] = useState(null);
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState([]);
+  const [queue, setQueue] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -21,6 +23,27 @@ export default function Home() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, busy]);
+
+  useEffect(() => {
+    async function loadQueue() {
+      try {
+        const response = await fetch('/api/office-hours', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list-queue' }),
+        });
+        const result = await response.json();
+
+        if (response.ok) {
+          setQueue(result.queue ?? []);
+        }
+      } catch {
+        setQueue([]);
+      }
+    }
+
+    loadQueue();
+  }, []);
 
   async function startSession(event) {
     event.preventDefault();
@@ -79,6 +102,76 @@ export default function Home() {
     }
   }
 
+  async function joinQueueAction(event) {
+    event.preventDefault();
+    const trimmedName = queueName.trim();
+
+    if (!trimmedName) {
+      setError('Enter a name to join the queue.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/office-hours', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'join-queue', name: trimmedName }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error);
+      }
+
+      setQueue(result.queue ?? []);
+      setQueueName('');
+      setNotice(`${trimmedName} joined the queue.`);
+      window.setTimeout(() => setNotice(''), 2500);
+    } catch (caught) {
+      setError(caught.message || 'The queue could not be updated.');
+    }
+  }
+
+  async function advanceQueueAction() {
+    try {
+      const response = await fetch('/api/office-hours', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'advance-queue' }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error);
+      }
+
+      setQueue(result.queue ?? []);
+      setNotice(result.current ? `${result.current.name} is up next.` : 'The queue is empty.');
+      window.setTimeout(() => setNotice(''), 2500);
+    } catch (caught) {
+      setError(caught.message || 'The queue could not be advanced.');
+    }
+  }
+
+  async function removeQueueStudent(studentId) {
+    try {
+      const response = await fetch('/api/office-hours', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'leave-queue', id: studentId }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error);
+      }
+
+      setQueue(result.queue ?? []);
+    } catch (caught) {
+      setError(caught.message || 'The student could not be removed from the queue.');
+    }
+  }
+
   function simulatePayment() {
     setNotice('Payment simulated. No money was charged.');
     window.setTimeout(() => setNotice(''), 3500);
@@ -120,6 +213,34 @@ export default function Home() {
         <div className="sidebar-bottom">
           <div className="demo-pill"><span /> DEMO WORKSPACE</div>
           <button className="payment-button" onClick={simulatePayment} type="button">Simulated payment</button>
+          <div className="queue-panel" aria-label="Student queue management">
+            <h2>Queue</h2>
+            <form className="queue-form" onSubmit={joinQueueAction}>
+              <label className="visually-hidden" htmlFor="queue-name">Student name</label>
+              <input
+                id="queue-name"
+                maxLength={60}
+                onChange={(event) => setQueueName(event.target.value)}
+                placeholder="Enter name"
+                value={queueName}
+              />
+              <button className="join-queue-button" type="submit">Join queue</button>
+            </form>
+            {queue.length > 0 ? (
+              <ol className="queue-list">
+                {queue.map((student) => (
+                  <li key={student.id}>
+                    <span>#{student.position}</span>
+                    <strong>{student.name}</strong>
+                    <button aria-label={`Remove ${student.name} from queue`} onClick={() => removeQueueStudent(student.id)} type="button">×</button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="queue-empty">No students waiting.</p>
+            )}
+            <button className="next-student-button" onClick={advanceQueueAction} type="button">Call next student</button>
+          </div>
           <p>Answers use the sample material shown above.</p>
         </div>
       </aside>
